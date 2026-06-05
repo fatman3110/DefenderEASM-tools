@@ -1,0 +1,18 @@
+# CSV エクスポート出力（Export_EASMVuln_CSV.ps1 が生成）
+EASM_Assets_*.csv
+*.csv
+
+# 一時ファイル / ログ
+*.log
+*.tmp
+
+# OS / エディタ
+.DS_Store
+Thumbs.db
+.vscode/
+
+# 資格情報・環境固有設定（誤コミット防止）
+*.env
+.env
+*.secret
+azureProfile.json

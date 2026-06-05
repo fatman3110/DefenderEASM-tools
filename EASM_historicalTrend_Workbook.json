@@ -1,0 +1,270 @@
+{
+  "version": "Notebook/1.0",
+  "items": [
+    {
+      "type": 1,
+      "content": {
+        "json": "# EASM リスクダッシュボード\n\n**Microsoft Defender EASM** のリスク情報を可視化するダッシュボードです。優先度（High/Medium/Low Severity）別にリスクを監視し、アセットへの影響を把握します。"
+      },
+      "name": "header-text"
+    },
+    {
+      "type": 9,
+      "content": {
+        "version": "KqlParameterItem/1.0",
+        "parameters": [
+          {
+            "id": "timeRange",
+            "version": "KqlParameterItem/1.0",
+            "name": "TimeRange",
+            "type": 4,
+            "isRequired": true,
+            "value": {
+              "durationMs": 2592000000
+            },
+            "typeSettings": {
+              "selectableValues": [
+                {
+                  "durationMs": 604800000,
+                  "createdTime": "2026-02-13T00:00:00.000Z",
+                  "isInitialTime": false,
+                  "grain": 1,
+                  "useDashboardTimeRange": false
+                },
+                {
+                  "durationMs": 2592000000,
+                  "createdTime": "2026-02-13T00:00:00.000Z",
+                  "isInitialTime": false,
+                  "grain": 1,
+                  "useDashboardTimeRange": false
+                },
+                {
+                  "durationMs": 7776000000,
+                  "createdTime": "2026-02-13T00:00:00.000Z",
+                  "isInitialTime": false,
+                  "grain": 1,
+                  "useDashboardTimeRange": false
+                }
+              ],
+              "allowCustom": true
+            },
+            "label": "時間範囲"
+          },
+          {
+            "id": "labelFilter",
+            "version": "KqlParameterItem/1.0",
+            "name": "LabelFilter",
+            "label": "ラベルフィルタ",
+            "type": 2,
+            "isRequired": true,
+            "query": "EasmLabel_CL\n| summarize by Name_s\n| project Label = Name_s\n| union (print Label = 'すべて')\n| union (print Label = 'ラベルなし')\n| order by Label asc",
+            "value": "すべて",
+            "typeSettings": {
+              "additionalResourceOptions": [],
+              "showDefault": false
+            },
+            "timeContext": {
+              "durationMs": 0
+            },
+            "timeContextFromParameter": "TimeRange",
+            "queryType": 0,
+            "resourceType": "microsoft.operationalinsights/workspaces"
+          }
+        ],
+        "style": "pills",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces"
+      },
+      "name": "parameters"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "let selectedLabel = '{LabelFilter}';\nlet startDate = startofday({TimeRange:start});\nlet endDate = startofday({TimeRange:end});\nlet priorities = dynamic([\"High Severity\", \"Medium Severity\", \"Low Severity\"]);\nlet allDates = range DateOnly from startDate to endDate step 1d;\nlet allCombinations = allDates\n| extend Priority = priorities\n| mv-expand Priority to typeof(string);\nlet riskData = EasmRisk_CL\n| where SnapshotDateTime_t {TimeRange}\n| join kind=leftouter (\n    EasmAsset_CL\n    | summarize arg_max(SnapshotDateTime_t, *) by AssetUuid_g\n    | project AssetUuid_g, Labels_s\n) on AssetUuid_g\n| where selectedLabel == 'すべて' \n    or (selectedLabel == 'ラベルなし' and (isempty(Labels_s) or Labels_s == '' or Labels_s == '[]'))\n    or (selectedLabel != 'すべて' and selectedLabel != 'ラベルなし' and Labels_s contains selectedLabel)\n| extend SnapshotDateJST = datetime_add('hour', 9, SnapshotDateTime_t)\n| extend DateOnly = startofday(SnapshotDateJST)\n| summarize arg_max(SnapshotDateTime_t, *) by DateOnly, AssetUuid_g, MetricDisplayName_s\n| summarize RiskCount = count() by DateOnly, Priority = CategoryName_s;\nallCombinations\n| join kind=leftouter (riskData) on DateOnly, Priority\n| project DateOnly, Priority, RiskCount\n| sort by DateOnly asc, Priority asc",
+        "size": 0,
+        "title": "リスクの経時変化（優先度別）",
+        "timeContextFromParameter": "TimeRange",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "visualization": "linechart",
+        "chartSettings": {
+          "xAxis": "DateOnly",
+          "yAxis": [
+            "RiskCount"
+          ],
+          "group": "Priority",
+          "createOtherGroup": 0,
+          "showLegend": true,
+          "seriesLabelSettings": [
+            {
+              "seriesName": "High Severity",
+              "color": "redBright"
+            },
+            {
+              "seriesName": "Medium Severity",
+              "color": "orange"
+            },
+            {
+              "seriesName": "Low Severity",
+              "color": "yellow"
+            }
+          ],
+          "ySettings": {
+            "numberFormatSettings": {
+              "unit": 17,
+              "options": {
+                "style": "decimal",
+                "useGrouping": true
+              }
+            }
+          }
+        }
+      },
+      "name": "risk-trend-chart"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "let selectedLabel = '{LabelFilter}';\nEasmRisk_CL\n| where SnapshotDateTime_t {TimeRange}\n| extend RiskKey = strcat(AssetUuid_g, \"|\", MetricDisplayName_s, \"|\", CategoryName_s)\n| summarize arg_max(SnapshotDateTime_t, *) by RiskKey\n| join kind=leftouter (\n    EasmAsset_CL\n    | summarize arg_max(SnapshotDateTime_t, *) by AssetUuid_g\n    | project AssetUuid_g, Labels_s\n) on AssetUuid_g\n| where selectedLabel == 'すべて' \n    or (selectedLabel == 'ラベルなし' and (isempty(Labels_s) or Labels_s == '' or Labels_s == '[]'))\n    or (selectedLabel != 'すべて' and selectedLabel != 'ラベルなし' and Labels_s contains selectedLabel)\n| extend Status = iff(SnapshotDateTime_t >= ago(14d), \"OPEN\", \"Resolved\")\n| extend AssetInfo = strcat(AssetType_s, \": \", AssetName_s)\n| extend Priority = CategoryName_s\n| extend RiskDetails = MetricDisplayName_s\n| extend Labels = iff(isempty(Labels_s) or isnull(Labels_s) or Labels_s == '' or Labels_s == '[]', \"ラベルなし\", Labels_s)\n| extend SnapshotDateJST = datetime_add('hour', 9, SnapshotDateTime_t)\n| extend AssetLastSeenJST = datetime_add('hour', 9, AssetLastSeen_t)\n| project Status, LastDetected = SnapshotDateJST, Priority, AssetInfo, RiskDetails, Labels, AssetLastSeen = AssetLastSeenJST\n| sort by Priority asc, LastDetected desc",
+        "size": 0,
+        "title": "リスク詳細リスト（優先度別：全て）",
+        "timeContextFromParameter": "TimeRange",
+        "exportFieldName": "AssetName_s",
+        "exportParameterName": "SelectedAsset",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "visualization": "table",
+        "gridSettings": {
+          "formatters": [
+            {
+              "columnMatch": "Status",
+              "formatter": 18,
+              "formatOptions": {
+                "thresholdsOptions": "colors",
+                "thresholdsGrid": [
+                  {
+                    "text": "OPEN",
+                    "operator": "==",
+                    "thresholdValue": "OPEN",
+                    "representation": "redBright"
+                  },
+                  {
+                    "text": "Resolved",
+                    "operator": "Default",
+                    "representation": "green"
+                  }
+                ]
+              }
+            },
+            {
+              "columnMatch": "LastDetected",
+              "formatter": 6,
+              "dateFormat": {
+                "showUtcTime": null,
+                "formatName": "shortDateTimePattern"
+              }
+            },
+            {
+              "columnMatch": "Priority",
+              "formatter": 18,
+              "formatOptions": {
+                "thresholdsOptions": "colors",
+                "thresholdsGrid": [
+                  {
+                    "text": "High Severity",
+                    "operator": "==",
+                    "thresholdValue": "High Severity",
+                    "representation": "redBright"
+                  },
+                  {
+                    "text": "Medium Severity",
+                    "operator": "Default",
+                    "representation": "orange"
+                  }
+                ]
+              }
+            },
+            {
+              "columnMatch": "AssetLastSeen",
+              "formatter": 6,
+              "dateFormat": {
+                "showUtcTime": null,
+                "formatName": "shortDateTimePattern"
+              }
+            }
+          ],
+          "filter": true,
+          "sortBy": [
+            {
+              "itemKey": "Priority",
+              "sortOrder": 1
+            }
+          ],
+          "rowLimit": 1000
+        },
+        "sortBy": [
+          {
+            "itemKey": "Priority",
+            "sortOrder": 1
+          }
+        ]
+      },
+      "name": "risk-detail-list"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "let selectedLabel = '{LabelFilter}';\nlet latestSnapshot = toscalar(EasmRisk_CL | where SnapshotDateTime_t {TimeRange} | summarize max(SnapshotDateTime_t));\nEasmRisk_CL\n| where SnapshotDateTime_t == latestSnapshot\n| join kind=leftouter (\n    EasmAsset_CL\n    | summarize arg_max(SnapshotDateTime_t, *) by AssetUuid_g\n    | project AssetUuid_g, Labels_s\n) on AssetUuid_g\n| where selectedLabel == 'すべて' \n    or (selectedLabel == 'ラベルなし' and (isempty(Labels_s) or Labels_s == '' or Labels_s == '[]'))\n    or (selectedLabel != 'すべて' and selectedLabel != 'ラベルなし' and Labels_s contains selectedLabel)\n| extend Priority = CategoryName_s\n| extend AssetInfo = strcat(AssetType_s, \": \", AssetName_s)\n| summarize HighPriority = countif(Priority == 'High Severity'),\n            MediumPriority = countif(Priority == 'Medium Severity'),\n            LowPriority = countif(Priority == 'Low Severity'),\n            TotalRisks = count()\n            by AssetInfo\n| sort by HighPriority desc, MediumPriority desc, TotalRisks desc\n| take 20",
+        "size": 0,
+        "title": "多くのリスクが紐づいているアセット Top 20",
+        "timeContextFromParameter": "TimeRange",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "visualization": "barchart",
+        "chartSettings": {
+          "xAxis": "AssetInfo",
+          "yAxis": [
+            "HighPriority",
+            "MediumPriority",
+            "LowPriority"
+          ],
+          "group": null,
+          "createOtherGroup": 0,
+          "showLegend": true,
+          "seriesLabelSettings": [
+            {
+              "seriesName": "HighPriority",
+              "label": "High Severity",
+              "color": "redBright"
+            },
+            {
+              "seriesName": "MediumPriority",
+              "label": "Medium Severity",
+              "color": "orange"
+            },
+            {
+              "seriesName": "LowPriority",
+              "label": "Low Severity",
+              "color": "yellow"
+            }
+          ],
+          "ySettings": {
+            "numberFormatSettings": {
+              "unit": 17,
+              "options": {
+                "style": "decimal"
+              }
+            },
+            "min": null,
+            "max": null
+          }
+        }
+      },
+      "name": "top-risky-assets"
+    }
+  ],
+  "styleSettings": {}
+}
